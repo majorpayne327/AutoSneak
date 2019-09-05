@@ -1,0 +1,4 @@
+name: SmartSneak
+main: com.etcsoftworks.smartsneak.SmartSneak
+version: 1.0
+depend: [ProtocolLib]
