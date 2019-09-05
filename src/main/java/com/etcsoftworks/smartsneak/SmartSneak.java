@@ -20,7 +20,7 @@ public class SmartSneak extends JavaPlugin {
 	private ProtocolManager protocolManager;
 	
 	public void onEnable() {
-		getLogger().info("We started this bitch up");
+		getLogger().info("Enabling SmartSneak");
 		protocolManager = ProtocolLibrary.getProtocolManager();
 		
 		protocolManager.addPacketListener(new PlayerActionListener(this));
@@ -32,6 +32,6 @@ public class SmartSneak extends JavaPlugin {
 	}
 	
 	public void onDisable() {
-		getLogger().info("Cleanse. Burn. Kill.");
+		getLogger().info("Disabling SmartSneak");
 	}
 }
