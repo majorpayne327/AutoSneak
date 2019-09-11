@@ -1,11 +1,7 @@
 package com.etcsoftworks.smartsneak.listeners.server;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.logging.Logger;
 
-import org.bukkit.Bukkit;
-import org.bukkit.World;
 import org.bukkit.entity.Entity;
 import org.bukkit.plugin.Plugin;
 
@@ -15,7 +11,9 @@ import com.comphenix.protocol.events.PacketAdapter;
 import com.comphenix.protocol.events.PacketContainer;
 import com.comphenix.protocol.events.PacketEvent;
 import com.etcsoftworks.smartsneak.PlayerManager;
-import com.etcsoftworks.smartsneak.SmartSneak;
+import com.comphenix.protocol.wrappers.WrappedDataWatcher;
+import com.comphenix.protocol.wrappers.WrappedDataWatcher.Registry;
+import com.comphenix.protocol.wrappers.WrappedDataWatcher.Serializer;
 import com.comphenix.protocol.wrappers.WrappedWatchableObject;
 
 import net.minecraft.server.v1_14_R1.EntityPose;
@@ -30,87 +28,78 @@ public class EntityMetadataListener extends PacketAdapter {
 
 		PacketContainer packet = event.getPacket();
 
-		getPluginLogger().info(String.format("---onPacketSending--- Packet Type: %s", packet.getType()));
-		int entityId = packet.getIntegers().size() != 0 ? packet.getIntegers().read(0) : -1;
-		Entity entity = getEntity(entityId);
-		getPluginLogger().info(String.format("Packet Source: %s", entity != null ? entity.getName() : ""));
-		getPluginLogger().info(String.format("Packet Target: %s", event.getPlayer().getName()));
+		getLogger().info(String.format("---onPacketSending--- Packet Type: %s", packet.getType()));
+		Entity entity = packet.getEntityModifier(event.getPlayer().getWorld()).read(0);
+		getLogger().info(String.format("Packet Source: %s", entity != null ? entity.getName() : ""));
+		getLogger().info(String.format("Packet Target: %s", event.getPlayer().getName()));
 		
-		if(!PlayerManager.getInstance().containsId(packet.getIntegers().read(0))) {
+		if(containsMetadata(packet)) {
+			
+			getLogger().info(String.format("Watchable Collection Modifiers: %d", packet.getWatchableCollectionModifier().size()));
+			getLogger().info(String.format("Modifiers: %s", packet.getWatchableCollectionModifier().read(0).toString()));
+			
+			WrappedDataWatcher dataWatcher = new WrappedDataWatcher(packet.getWatchableCollectionModifier().read(0));
+			
+			getLogger().info(String.format("DataWatcherIndicies: %s", dataWatcher.getIndexes().toString()));
 
-			getPluginLogger().info(String.format("PlayerPoses: %s", PlayerManager.getInstance()));
-			getPluginLogger().info(String.format("--IGNORED--"));
-			return;
-		}
-		
-		getPluginLogger().info(String.format("isSneaking: %s; isSwimming: %s", event.getPlayer().isSneaking(), event.getPlayer().isSwimming()));
-		
-		getPluginLogger().info(String.format("Watchable Collection Modifiers: %d", packet.getWatchableCollectionModifier().size()));
-		if(packet.getWatchableCollectionModifier().size() != 0) {
-			
-			getPluginLogger().info(String.format("Modifiers: %s", packet.getWatchableCollectionModifier().read(0).toString()));
-			
-			List<WrappedWatchableObject> newData = new ArrayList<WrappedWatchableObject>();
-			for(WrappedWatchableObject modifier: packet.getWatchableCollectionModifier().read(0)) {
-				getPluginLogger().info(String.format("Modifier: %s", modifier.toString()));
-				
-				if(isRunning(modifier)) {
-					// Need to send new packet for standing?
-					getPluginLogger().info(String.format("Setting Player to %s", EntityPose.STANDING));
-					break;
-				}
-				
-				if(isStanding(modifier)) {
-					int playerId = packet.getIntegers().read(0);
-					EntityPose pose = PlayerManager.getInstance().getPlayerPose(playerId);
-					getPluginLogger().info(String.format("Setting Player to %s", pose));
-					modifier.setValue(pose);
-					break;
-				}
-				
-				if(isSwimming(modifier)) {
-//					int playerId = packet.getIntegers().read(0);
-//					EntityPose pose = PlayerManager.getInstance().getPlayerPose(playerId);
-//					getPluginLogger().info(String.format("Setting Player to %s", pose));
-					modifier.setValue((byte) 0x02);					
-					break;
-				}
+			if(isRunning(dataWatcher)) {
+				getLogger().info(String.format("Setting Player to %s", EntityPose.STANDING));
+				dataWatcher.setObject(6, Registry.get(EntityPose.class), EntityPose.STANDING);
+			} else if(isStanding(dataWatcher)) {
+				getLogger().info(String.format("Setting Player to %s", EntityPose.SNEAKING));
+				dataWatcher.setObject(0, Registry.get(Byte.class), (byte) 0x02);
+				dataWatcher.setObject(6, Registry.get(EntityPose.class), EntityPose.SNEAKING);
+			} else if(isFlying(dataWatcher)) {
+				dataWatcher.setObject(6, Registry.get(EntityPose.class), EntityPose.SNEAKING);
+			} else if(isSwimming(dataWatcher)) {
+				dataWatcher.setObject(6, Registry.get(EntityPose.class), EntityPose.SNEAKING);
+			} else if(isSleeping(dataWatcher)) {
+				dataWatcher.setObject(0, Registry.get(Byte.class), (byte) 0x02);
 			}
 			
-			if(newData.size() > 0) {
-				packet.getWatchableCollectionModifier().read(0).addAll(newData);
-			}
-			getPluginLogger().info(String.format("New Modifiers: %s", packet.getWatchableCollectionModifier().read(0).toString()));
+			getLogger().info(String.format("Modified DataWatcherIndicies: %s", dataWatcher.getIndexes().toString()));
+			
+			getLogger().info(String.format("New Modifiers: %s", dataWatcher.getWatchableObjects().toString()));
+			packet.getWatchableCollectionModifier().write(0, dataWatcher.getWatchableObjects());
+
+			
+		} else {
+			getLogger().info(String.format("PlayerPoses: %s", PlayerManager.getInstance()));
+			getLogger().info(String.format("--IGNORED--"));
 		}
 		
-		getPluginLogger().info("---------------------");
+		getLogger().info("---------------------");
 	}
 	
-	private boolean isRunning(WrappedWatchableObject watchable) {
-		return watchable.getIndex() == 0 && (byte) watchable.getValue() == 0x08;
+	private boolean containsMetadata(PacketContainer packet) {
+		return packet.getWatchableCollectionModifier().size() == 1;
 	}
 	
-	private boolean isStanding(WrappedWatchableObject watchable) {
-		return watchable.getIndex() == 6 && ((EntityPose) watchable.getValue()) == EntityPose.STANDING;
+	private boolean playerIsRegisteredToPlugin() {
+		return false;
 	}
 	
-	private boolean isSwimming(WrappedWatchableObject watchable) {
-		return watchable.getIndex() == 0 && (byte) watchable.getValue() == 0x08;
+	private boolean isRunning(WrappedDataWatcher dataWatcher) {
+		return dataWatcher.hasIndex(0) && dataWatcher.getByte(0) == 0x08;
 	}
 	
-	private Entity getEntity(int entityId) {
-		for (World world: Bukkit.getWorlds()) {
-			for (Entity entity: world.getEntities()) {
-				if (entity.getEntityId() == entityId) {
-					return entity;
-				}
-			}
-		}
-		
-		return null;
+	private boolean isStanding(WrappedDataWatcher dataWatcher) {
+		return (dataWatcher.hasIndex(0) && dataWatcher.getByte(0) == 0) || (dataWatcher.hasIndex(6) && (EntityPose) dataWatcher.getObject(6) == EntityPose.STANDING);
 	}
 	
-	private Logger getPluginLogger() {
+	private boolean isFlying(WrappedDataWatcher dataWatcher) {
+		return dataWatcher.hasIndex(6) && (EntityPose) dataWatcher.getObject(6) == EntityPose.FALL_FLYING;
+	}
+	
+	private boolean isSwimming(WrappedDataWatcher dataWatcher) {
+		return (dataWatcher.hasIndex(0) && dataWatcher.getByte(0) == 0x10) || (dataWatcher.hasIndex(6) && (EntityPose) dataWatcher.getObject(6) == EntityPose.SWIMMING);
+	}	
+	
+	private boolean isSleeping(WrappedDataWatcher dataWatcher) {
+		return dataWatcher.hasIndex(6) && (EntityPose) dataWatcher.getObject(6) == EntityPose.SLEEPING;
+	}
+	
+	private Logger getLogger() {
 		return this.getPlugin().getLogger();
 	}
 }
